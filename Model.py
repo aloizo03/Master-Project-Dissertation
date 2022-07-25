@@ -12,6 +12,7 @@ from Dataset import DataLoader_Affect_Net
 from torch.utils import data
 from config import *
 from torch.autograd import Variable
+import torch.nn.functional as F
 
 
 def kaiming_normal_init(model):
@@ -84,6 +85,7 @@ class Model(nn.Module):
         for param1, param2 in zip(vgg_19.features, self.feature_extractor):
             if isinstance(param1, nn.Conv2d) or isinstance(param1, nn.BatchNorm2d):
                 param2.weight.data = param1.weight.data
+                param2.bias.data = param1.bias.data
 
         self.feature_extractor = self.feature_extractor.to(self.device)
 
@@ -244,9 +246,8 @@ class Model_with_LwF(Model):
         self.fc.output.weight.data[:old_classes_total, :] = old_class_weights
         self.fc.output.bias.data[:old_classes_total] = old_class_bias
 
-        for param in self.fc.parameters():
-            if isinstance(param, nn.Dropout):
-                param.eval()
+        # for param in self.feature_extractor.parameters():
+        #     param.requires_grad = False
 
     def testing(self, testing_dataset):
         testing_data_loader = data.DataLoader(dataset=testing_dataset,
@@ -368,10 +369,10 @@ class Model_with_LwF(Model):
                 total_loss.append(running_loss)
                 pbar.update(1)
 
-                accuracy = accuracy / count
+                accuracy /= count
                 if accuracy > self.accuracy_thresh_decay:
                     for g in optimizer.param_groups:
-                        g['lr'] = g['lr'] / 10
+                        g['lr'] /= 10
 
                 accuracy_lst.append(accuracy)
 
@@ -383,8 +384,9 @@ class Model_with_LwF(Model):
         self.save_model(filename=path_model)
         return accuracy_lst, total_loss, training_dict
 
-    def training_(self, dataset, preprocessing, new_classes=[], new_classes_itter=2):
+    def training_(self, dataset, preprocessing, new_classes=[], new_classes_itter=2, T=2):
         # If new classes is empty train only on the old classes
+        beta = 0.25
         accuracy_all_classes = []
         loss_all_classes = []
         testing_accuracy_per_class = []
@@ -432,10 +434,12 @@ class Model_with_LwF(Model):
                 self.add_new_classes(new_classes=new_classes)
                 dataset_new_class = DataLoader_Affect_Net(classes=new_classes,
                                                           use_subpopulation=self.use_subpopulation,
-                                                          pre_processing=preprocessing)
+                                                          pre_processing=preprocessing,
+                                                          sensitive_feature=dataset.sensitive_feature)
 
                 # old_classes = [emotion for emotion in self.emotion_classes if emotion not in new_classes]
                 # dataset_new_class.merge_training_data(emotion_classes=old_classes, datasets=testing_datasets)
+
                 train_data_loader = data.DataLoader(dataset=dataset_new_class.training_dataset,
                                                     batch_size=self.batch_size,
                                                     shuffle=False,
@@ -443,6 +447,8 @@ class Model_with_LwF(Model):
 
                 total_loss = []
                 accuracy_lst = []
+                # Every new classes decay the learning rate
+                self.lr = self.lr/2
                 optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr,
                                             momentum=self.momentum, weight_decay=5e-4)
 
@@ -467,15 +473,18 @@ class Model_with_LwF(Model):
                             optimizer.zero_grad()
 
                             outputs = self.forward(images)
-                            loss = criterion(outputs, labels)
+                            loss_1 = criterion(outputs, labels)
 
                             old_class_outputs = prev_model.forward(images)
                             old_class_size = old_class_outputs.shape[1]
 
-                            outputs_distillation = outputs[..., :old_class_size]
-                            k_d_loss = knowledge_distillation_loss(outputs_distillation, old_class_outputs)
-                            k_d_loss = k_d_loss.to(self.device)
-                            loss += k_d_loss
+                            # outputs_distillation = outputs[..., :old_class_size]
+                            # k_d_loss = knowledge_distillation_loss(outputs_distillation, old_class_outputs)
+                            # k_d_loss = k_d_loss.to(self.device)
+                            loss_2 = nn.KLDivLoss()(F.log_softmax(outputs[:, :old_class_size] / T, dim=1),
+                                                    F.softmax(old_class_outputs.detach() / T,
+                                                              dim=1)) * T * T * beta * old_class_size
+                            loss = loss_1 + loss_2
 
                             accuracy += self.calculate_accuracy(predictions=outputs, gt_labels=labels)
                             count += 1
@@ -502,10 +511,10 @@ class Model_with_LwF(Model):
 
                         pbar.update(1)
                         total_loss.append(running_loss)
-                        accuracy = accuracy / count
+                        accuracy /= count
                         if accuracy > self.accuracy_thresh_decay:
                             for g in optimizer.param_groups:
-                                g['lr'] = g['lr'] / 10
+                                g['lr'] /= 10
 
                         accuracy_lst.append(accuracy)
                         for i in dataset.emotions_classes:

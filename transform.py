@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 
 def transform(image, size, min_norm=0, max_norm=1., transpose=(2, 0, 1)):

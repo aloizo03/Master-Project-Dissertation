@@ -11,12 +11,17 @@ from config import *
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import ShuffleSplit
 import random
-from transform import transform
+from transform import *
 
 races4 = {'Asian', 'Black', 'Indian', 'White'}
 non_white_races4 = {'Black', 'Indian'}
 white_races4 = {'Asian', 'White'}
 
+# for age group
+age_groups = {'0-2', '10-19', '20-29', '3-9', '30-39', '40-49', '50-59', '60-69', '70+'}
+young_age_group = {'0-2', '3-9', '10-19', '20-29'}
+old_age_group = {'30-39', '40-49', '50-59', '60-69', '70+'}
+binary_age_groups = {'young', 'old'}
 
 class Dataset(data.Dataset):
 
@@ -59,6 +64,7 @@ class Dataset(data.Dataset):
         label_y = self.image_label_y[index]
         img = cv2.imread(image_path)
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # img_alligned = alligned_face(img_rgb)
         if not self.is_transform:
             img_rgb = transform(image=img_rgb, size=model_input)
         img_rgb = torch.from_numpy(img_rgb).float()
@@ -67,6 +73,9 @@ class Dataset(data.Dataset):
 
         if self.use_sf == 'race4':
             sensitive_feature = self.race_4_labels[index]
+        elif self.use_sf == 'age':
+            sensitive_feature = self.age_group_labels[index]
+
         return img_rgb, label_y, sensitive_feature
 
 
@@ -74,7 +83,7 @@ class DataLoader_Affect_Net:
 
     def __init__(self, pre_processing,
                  classes=['anger', 'contempt', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise'],
-                 use_subpopulation=False):
+                 use_subpopulation=False, sensitive_feature='race4'):
         self.dir = dataset_dir
         self.emotions_classes = classes
         self.class_map = emotion_map
@@ -89,6 +98,7 @@ class DataLoader_Affect_Net:
         self.validation_dataset = None
         self.use_subpopulation = use_subpopulation
         self.pre_processing = pre_processing
+        self.sensitive_feature = sensitive_feature
 
         # load ans split data to Training and testing dataset
         if use_subpopulation:
@@ -140,7 +150,8 @@ class DataLoader_Affect_Net:
         self.training_dataset = Dataset(X=img_paths,
                                         y=labels_with_sens_features,
                                         is_transform=False,
-                                        classes=self.emotions_classes)
+                                        classes=self.emotions_classes,
+                                        use_sf=self.sensitive_feature)
 
         img_paths = []
         labels = []
@@ -172,6 +183,7 @@ class DataLoader_Affect_Net:
         self.testing_dataset = Dataset(X=img_paths,
                                        y=labels_with_sens_features,
                                        is_transform=False,
+                                       use_sf=self.sensitive_feature,
                                        classes=self.emotions_classes)
 
     def load_data(self):
@@ -214,7 +226,7 @@ class DataLoader_Affect_Net:
         self.training_dataset = Dataset(X=train_x, y=train_y, is_transform=False, classes=self.emotions_classes)
         self.testing_dataset = Dataset(X=test_x, y=test_y, is_transform=False, classes=self.emotions_classes)
 
-    def merge_training_data(self, emotion_classes, datasets, percentage=0.2):
+    def merge_training_data(self, emotion_classes, datasets, percentage=0.3):
         dir_path = os.getcwd()
         path_dataset_dir = os.path.join(dir_path, self.dir)
 
