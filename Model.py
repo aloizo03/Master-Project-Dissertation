@@ -13,6 +13,7 @@ from torch.utils import data
 from config import *
 from torch.autograd import Variable
 import torch.nn.functional as F
+from loss import LossComputer
 
 
 def kaiming_normal_init(model):
@@ -38,8 +39,9 @@ class Model(nn.Module):
     def __init__(self, lr, epochs, batch_size, num_hidden=4096, use_batch_norm=False, use_pre_trained_weights=False,
                  weight_decay=0.0005,
                  emotion_classes=['anger', 'contempt', 'disgust', 'fear', 'sad', 'surprise', 'happy', 'neutral'],
-                 use_subpopulation=True):
+                 use_subpopulation=True, sensitive_feature='race4'):
         # Initialize Hyper parameters
+        self.sensitive_feature = sensitive_feature
         self.lr = lr
         self.epochs = epochs
         self.batch_size = batch_size
@@ -151,7 +153,8 @@ class Model(nn.Module):
             ('fc2', nn.Linear(self.total_hidden_layers, self.total_hidden_layers)),
             ('relu2', nn.ReLU()),
             ('dropout2', nn.Dropout(p=0.5)),
-            ('output', nn.Linear(self.total_hidden_layers, self.num_classes))
+            ('output', nn.Linear(self.total_hidden_layers, self.num_classes)),
+            ('relu3', nn.ReLU())
         ])).to(self.device)
         return fc_layer
 
@@ -160,8 +163,8 @@ class Model(nn.Module):
         train_data_loader = data.DataLoader(dataset=dataset.training_dataset, batch_size=self.batch_size, shuffle=False,
                                             num_workers=0)
         criterion = nn.CrossEntropyLoss()
-        # Observe that all parameters are being optimized
 
+        # Observe that all parameters are being optimized
         optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=self.momentum,
                                     weight_decay=self.weight_decay)
         with tqdm(total=self.epochs) as pbar:
@@ -197,9 +200,10 @@ class Model(nn.Module):
 
 class Model_with_LwF(Model):
 
-    def __init__(self, lr, epochs, batch_size, num_hidden=4096, weight_decay=0.0005, epsilon=1e-16, total_classes=2,
+    def __init__(self, lr, epochs, batch_size, loss_function, num_hidden=4096, weight_decay=0.0005, epsilon=1e-16,
+                 total_classes=2,
                  classes=['anger', 'contempt'], use_batch_norm=False, use_pre_trained_weights=False,
-                 use_subpopulation=True):
+                 use_subpopulation=True, sensitive_feature='race4'):
         super().__init__(lr=lr,
                          epochs=epochs,
                          batch_size=batch_size,
@@ -207,7 +211,8 @@ class Model_with_LwF(Model):
                          use_pre_trained_weights=use_pre_trained_weights,
                          weight_decay=weight_decay,
                          emotion_classes=classes,
-                         use_subpopulation=use_subpopulation)
+                         use_subpopulation=use_subpopulation,
+                         sensitive_feature=sensitive_feature)
 
         self.testing_accuracy_per_classes_update = []
 
@@ -227,6 +232,7 @@ class Model_with_LwF(Model):
         self.fc = self.create_fully_connected_layer()
         self.fc.apply(kaiming_normal_init)
 
+        self.loss_function = loss_function
         if self.use_pre_trained_weights:
             self.add_pre_trained_weights()
         else:
@@ -265,7 +271,10 @@ class Model_with_LwF(Model):
                 predicts = self.forward(images)
                 accuracy += self.calculate_accuracy(predictions=predicts, gt_labels=labels)
                 count += 1
+                predicts = predicts.cpu().detach().numpy()
+                labels = labels.cpu().detach().numpy()
 
+                torch.cuda.empty_cache()
             return accuracy / count
 
     def calculate_all_classes_testing_accuracy(self, datasets):
@@ -287,9 +296,11 @@ class Model_with_LwF(Model):
 
                     predicts = predicts.cpu().detach().numpy()
                     labels = labels.cpu().detach().numpy()
+
                     predicts_lst.extend(predicts)
                     labels_lst.extend(labels)
                     sensitive_feature_labels_lst.extend(sf)
+                    torch.cuda.empty_cache()
 
             for i in dataset.emotions_classes:
                 value = self.emotion_map[i]
@@ -301,7 +312,7 @@ class Model_with_LwF(Model):
 
         return testing_dict
 
-    def train_old_classes(self, dataset):
+    def train_old_classes(self, dataset, log_every=50):
         training_dict = {}
         total_loss = []
         accuracy_lst = []
@@ -310,7 +321,6 @@ class Model_with_LwF(Model):
                                             shuffle=False,
                                             num_workers=0)
 
-        criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr,
                                     momentum=self.momentum, weight_decay=5e-4)
 
@@ -328,6 +338,11 @@ class Model_with_LwF(Model):
                     images = images.to(self.device)
                     labels = labels.to(self.device)
 
+                    if self.sensitive_feature == 'race4':
+                        sf_to_id = [races4_to_id[i] for i in sf]
+                    elif self.sensitive_feature == 'age':
+                        sf_to_id = [binary_age_groups_to_id[i] for i in sf]
+
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
@@ -337,7 +352,13 @@ class Model_with_LwF(Model):
                     accuracy += self.calculate_accuracy(predictions=outputs, gt_labels=labels)
                     count += 1
 
-                    loss = criterion(outputs, labels)
+                    if self.use_subpopulation:
+                        loss = self.loss_function.loss(outputs, labels, sf_to_id)
+                    else:
+                        loss = self.loss_function(outputs, labels)
+                    if (step + 1) % log_every == 0:
+                        self.loss_function.reset_stats()
+
                     loss.backward()
                     optimizer.step()
 
@@ -352,11 +373,14 @@ class Model_with_LwF(Model):
                     sensitive_feature_labels_lst.extend(sf)
 
                     # print statistics
-                    running_loss += loss.item()
+                    running_loss += loss.cpu().detach().item()
+                    outputs = outputs.cpu().detach().numpy()
+
+                    torch.cuda.empty_cache()
+
                     if (step + 1) % 10 == 0:
                         pbar.set_description(
                             f'Bath Size Step [{step}/{len(train_data_loader)}], Loss: {loss.item():.4f}')
-
                 for i in dataset.emotions_classes:
                     value = self.emotion_map[i]
                     indexes = [index for index in range(len(labels_lst)) if value == labels_lst[index]]
@@ -382,9 +406,10 @@ class Model_with_LwF(Model):
         path_model = os.path.join(path_model, model_filename)
         print(path_model)
         self.save_model(filename=path_model)
+        torch.cuda.empty_cache()
         return accuracy_lst, total_loss, training_dict
 
-    def training_(self, dataset, preprocessing, new_classes=[], new_classes_itter=2, T=2):
+    def training_(self, dataset, preprocessing, new_classes=[], new_classes_itter=2, T=2, log_every=50):
         # If new classes is empty train only on the old classes
         beta = 0.25
         accuracy_all_classes = []
@@ -393,7 +418,7 @@ class Model_with_LwF(Model):
         testing_datasets = []
         training_accuracy_per_class = []
         if len(new_classes) == 0:
-            self.train_old_classes(dataset=dataset)
+            self.train_old_classes(dataset=dataset, log_every=log_every)
             testing_accuracy_per_class.append(self.testing(dataset.testing_dataset))
         else:
             print(f'Train on classes {self.emotion_classes}\n')
@@ -429,6 +454,8 @@ class Model_with_LwF(Model):
                     param.requires_grad = False
                 new_classes = list(new_classes)
                 print(f'Add class {new_classes}\n')
+                del checkpoints_old_model
+
                 # add the new class and change the fully connected layer
 
                 self.add_new_classes(new_classes=new_classes)
@@ -447,13 +474,15 @@ class Model_with_LwF(Model):
 
                 total_loss = []
                 accuracy_lst = []
+
                 # Every new classes decay the learning rate
-                self.lr = self.lr/2
+                self.lr = self.lr / 2
                 optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr,
                                             momentum=self.momentum, weight_decay=5e-4)
 
-                criterion = nn.CrossEntropyLoss()
                 testing_datasets.append(dataset_new_class)
+                if self.use_subpopulation:
+                    self.loss_function.update_dataset(dataset=dataset_new_class.training_dataset)
 
                 self.train()
                 with tqdm(total=self.epochs) as pbar:
@@ -465,22 +494,30 @@ class Model_with_LwF(Model):
                         predicts_lst = []
                         labels_lst = []
                         sensitive_feature_labels_lst = []
+                        torch.cuda.empty_cache()
+
                         for step, datas in enumerate(train_data_loader):
                             images, labels, sf = datas
                             images = images.to(self.device)
                             labels = labels.to(self.device)
                             # zero the parameter gradients
                             optimizer.zero_grad()
+                            if self.sensitive_feature == 'race4':
+                                sf_to_id = [races4_to_id[i] for i in sf]
+                            elif self.sensitive_feature == 'age':
+                                sf_to_id = [binary_age_groups_to_id[i] for i in sf]
 
                             outputs = self.forward(images)
-                            loss_1 = criterion(outputs, labels)
+                            if self.use_subpopulation:
+                                loss_1 = self.loss_function.loss(outputs, labels, sf_to_id)
+                                if (step + 1) % log_every == 0:
+                                    self.loss_function.reset_stats()
+                            else:
+                                loss_1 = self.loss_function(outputs, labels)
 
                             old_class_outputs = prev_model.forward(images)
                             old_class_size = old_class_outputs.shape[1]
 
-                            # outputs_distillation = outputs[..., :old_class_size]
-                            # k_d_loss = knowledge_distillation_loss(outputs_distillation, old_class_outputs)
-                            # k_d_loss = k_d_loss.to(self.device)
                             loss_2 = nn.KLDivLoss()(F.log_softmax(outputs[:, :old_class_size] / T, dim=1),
                                                     F.softmax(old_class_outputs.detach() / T,
                                                               dim=1)) * T * T * beta * old_class_size
@@ -489,11 +526,11 @@ class Model_with_LwF(Model):
                             accuracy += self.calculate_accuracy(predictions=outputs, gt_labels=labels)
                             count += 1
 
-                            loss.backward(retain_graph=True)
+                            loss.backward()
                             optimizer.step()
 
                             # print statistics
-                            running_loss += loss.item()
+                            running_loss += loss.cpu().detach().item()
 
                             # Save for subpopulation metrics
                             _, predicts = torch.max(torch.softmax(outputs, dim=1), dim=1, keepdim=False)
@@ -508,6 +545,7 @@ class Model_with_LwF(Model):
                             if step % 10 == 0:
                                 pbar.set_description(
                                     f'Bath Size Step [{step}/{len(train_data_loader)}, Loss: {loss.item():.4f}')
+                            torch.cuda.empty_cache()
 
                         pbar.update(1)
                         total_loss.append(running_loss)

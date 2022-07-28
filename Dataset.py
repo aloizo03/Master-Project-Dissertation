@@ -14,6 +14,7 @@ import random
 from transform import *
 
 races4 = {'Asian', 'Black', 'Indian', 'White'}
+races4_to_id = {'Asian': 0, 'Black': 1, 'Indian': 2, 'White': 3}
 non_white_races4 = {'Black', 'Indian'}
 white_races4 = {'Asian', 'White'}
 
@@ -22,6 +23,8 @@ age_groups = {'0-2', '10-19', '20-29', '3-9', '30-39', '40-49', '50-59', '60-69'
 young_age_group = {'0-2', '3-9', '10-19', '20-29'}
 old_age_group = {'30-39', '40-49', '50-59', '60-69', '70+'}
 binary_age_groups = {'young', 'old'}
+binary_age_groups_to_id = {'young': 0, 'old': 1}
+
 
 class Dataset(data.Dataset):
 
@@ -30,6 +33,7 @@ class Dataset(data.Dataset):
         # self.emotion_to_id = {'Angry': 0, 'Disgust': 1, 'Fear': 2, 'Happy': 3, 'Neutral': 4, 'Sad': 5, 'Surprise': 6}
         labels, race_labels, race_4_labels, gender_labels, group_age_labels = zip(*y)
         self.emotions_classes = classes
+        self.n_classes = len(self.emotions_classes)
         self.image_path_x = X
 
         self.image_label_y = list(labels)
@@ -40,6 +44,32 @@ class Dataset(data.Dataset):
 
         self.use_sf = use_sf
         self.is_transform = is_transform
+
+        group_array = []
+        y_array = []
+        if use_sf == 'race4':
+            self.n_groups = len(races4)
+            for x, y, g in self:
+                group_array.append(races4_to_id[g])
+                y_array.append(y)
+
+            self._group_array = torch.LongTensor(group_array)
+            self._y_array = torch.LongTensor(y_array)
+            self._group_counts = (torch.arange(self.n_groups).unsqueeze(1) == self._group_array).sum(1).float()
+
+            self._y_counts = (torch.arange(len(self.emotions_classes)).unsqueeze(1) == self._y_array).sum(1).float()
+
+        elif use_sf == 'age':
+            self.n_groups = len(binary_age_groups)
+            for x, y, g in self:
+                group_array.append(binary_age_groups[g])
+                y_array.append(y)
+
+            self._group_array = torch.LongTensor(group_array)
+            self._y_array = torch.LongTensor(y_array)
+
+            self._group_counts = (torch.arange(self.n_groups).unsqueeze(1) == self._group_array).sum(1).float()
+            self._y_counts = (torch.arange(len(self.emotions_classes)).unsqueeze(1) == self._y_array).sum(1).float()
 
     def merge_data(self, X, y, random_permutation=True):
         labels, race_labels, race_4_labels, gender_labels, group_age_labels = zip(*y)
@@ -52,12 +82,25 @@ class Dataset(data.Dataset):
         self.age_group_labels.extend(group_age_labels)
 
         if random_permutation:
-            zipped_data = list(zip(self.image_path_x, self.image_label_y, self.race_labels, self.race_4_labels, self.gender_labels, self.age_group_labels))
+            zipped_data = list(
+                zip(self.image_path_x, self.image_label_y, self.race_labels, self.race_4_labels, self.gender_labels,
+                    self.age_group_labels))
             random.shuffle(zipped_data)
-            self.image_path_x, self.image_label_y, self.race_labels, self.race_4_labels, self.gender_labels, self.age_group_labels = zip(*zipped_data)
+            self.image_path_x, self.image_label_y, self.race_labels, self.race_4_labels, self.gender_labels, self.age_group_labels = zip(
+                *zipped_data)
 
     def __len__(self):
         return len(self.image_path_x)
+
+    def group_counts(self):
+        return self._group_counts
+
+    def class_counts(self):
+        return self._y_counts
+
+    def input_size(self):
+        for x, y, g in self:
+            return x.size()
 
     def __getitem__(self, index):
         image_path = self.image_path_x[index]
@@ -267,12 +310,13 @@ class DataLoader_Affect_Net:
             gender_labels = []
             group_age_labels = []
             for dataset in datasets:
-                img_paths.extend(random.sample(dataset.img_paths, len(dataset.img_paths)*percentage))
-                labels.extend(random.sample(dataset.labels, len(dataset.labels)*percentage))
-                race_4_labels.extend(random.sample(dataset.race_4_labels, len(dataset.race_4_labels)*percentage))
-                race_labels.extend(random.sample(dataset.race_labels, len(dataset.race_labels)*percentage))
-                gender_labels.extend(random.sample(dataset.gender_labels, len(dataset.gender_labels)*percentage))
-                group_age_labels.extend(random.sample(dataset.age_group_labels, len(dataset.age_group_labels)*percentage))
+                img_paths.extend(random.sample(dataset.img_paths, len(dataset.img_paths) * percentage))
+                labels.extend(random.sample(dataset.labels, len(dataset.labels) * percentage))
+                race_4_labels.extend(random.sample(dataset.race_4_labels, len(dataset.race_4_labels) * percentage))
+                race_labels.extend(random.sample(dataset.race_labels, len(dataset.race_labels) * percentage))
+                gender_labels.extend(random.sample(dataset.gender_labels, len(dataset.gender_labels) * percentage))
+                group_age_labels.extend(
+                    random.sample(dataset.age_group_labels, len(dataset.age_group_labels) * percentage))
 
             zipped_data = list(zip(img_paths, labels, race_4_labels, race_labels, gender_labels, group_age_labels))
             random.shuffle(zipped_data)

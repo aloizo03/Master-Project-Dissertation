@@ -1,10 +1,13 @@
 from Dataset import DataLoader_Affect_Net
 from Model import Model, Model_with_LwF
+import torch.nn as nn
 from dataset_preprocessing import *
 from Plots import *
 from config import *
 import argparse
 from ConfusionMatrix import ConfusionMatrix
+from loss import LossComputer
+import torch
 
 
 def calculate_confunsion_matrix_per_sf(model,
@@ -63,29 +66,68 @@ def main(args):
                                                   use_subpopulation=use_subpopulation,
                                                   sensitive_feature=sf)
 
-    model_LwF = Model_with_LwF(classes=old_classes,
+    adjustments = [float(c) for c in generalization_adjustment]
+    if len(adjustments) == 1:
+        adjustments = np.array(adjustments * data_loader_AffectNet.training_dataset.n_groups)
+    else:
+        adjustments = np.array(adjustments)
+
+    if use_subpopulation:
+        criterion = nn.CrossEntropyLoss(reduction='none')
+        train_loss_computer = LossComputer(
+            criterion,
+            is_robust=True,
+            dataset=data_loader_AffectNet.training_dataset,
+            alpha=0.1,
+            gamma=0.1,
+            adj=adjustments,
+            step_size=robust_step_size,
+            normalize_loss=use_normalized_loss,
+            btl=btl,
+            min_var_weight=minimum_variational_weight,
+            device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+    else:
+        criterion = nn.CrossEntropyLoss()
+
+    if use_subpopulation:
+        model = Model_with_LwF(classes=old_classes,
                                total_classes=new_classes_itter,
                                lr=lr,
                                batch_size=batch_size,
                                epochs=num_of_epochs,
                                use_pre_trained_weights=use_pt_weight,
                                use_batch_norm=use_bn,
-                               use_subpopulation=use_subpopulation)
+                               use_subpopulation=use_subpopulation,
+                               sensitive_feature=sf,
+                               loss_function=train_loss_computer)
+    else:
+        model = Model_with_LwF(classes=old_classes,
+                               total_classes=new_classes_itter,
+                               lr=lr,
+                               batch_size=batch_size,
+                               epochs=num_of_epochs,
+                               use_pre_trained_weights=use_pt_weight,
+                               use_batch_norm=use_bn,
+                               use_subpopulation=use_subpopulation,
+                               sensitive_feature=sf,
+                               loss_function=criterion)
 
     accuracy_per_train_dataset, \
     loss_all_classes, \
     testing_accuracy_per_class, \
-    training_accuracy_per_class = model_LwF.training_(dataset=data_loader_AffectNet,
-                                                      new_classes=new_classes,
-                                                      new_classes_itter=new_classes_itter,
-                                                      preprocessing=dataset_pre_process)
+    training_accuracy_per_class = model.training_(dataset=data_loader_AffectNet,
+                                                  new_classes=new_classes,
+                                                  new_classes_itter=new_classes_itter,
+                                                  preprocessing=dataset_pre_process)
 
     plot_testing_accuracy_per_classes(testing_accuracy_per_class, classes_iter=2, classes=classes)
     plot_training_accuracy(accuracy_per_train_dataset, classes_iter=new_classes_itter, classes=classes)
     plot_model_training_loss(loss_all_classes, classes_iter=new_classes_itter, classes=classes)
-    plot_old_classes_accuracy(model_LwF)
-    plot_test_accuracy_per_sf(model=model_LwF)
-
+    plot_old_classes_accuracy(model)
+    plot_new_classes_testing_accuracy_per_sf(model=model)
+    plot_balance_accuracy_per_sf(CM_list=calculate_confunsion_matrix_per_sf(model=model,
+                                                                            sf=sf,
+                                                                            classes_iter=new_classes_itter))
 
 def config_parse(args):
     if args.lr < 0:
