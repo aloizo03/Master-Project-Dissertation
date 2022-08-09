@@ -28,9 +28,6 @@ python3 predict.py --csv "labels.csv"
 <br/>
 With this we create the sensitive feature label, but you must download the models of the label detection
 <br/>
-The demographic group annotation are also given in the dataset dir folder 'Dataset/input/affectnetsample/' 
-with the name test_output.csv for the training and testing data and with the name val_test_outputs.csv for the
-validation data
 
 # Training the model:
 With the command of we train the model using pre-trained weights and without subpopulation shift for 32 epochs:
