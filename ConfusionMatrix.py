@@ -2,7 +2,10 @@ from sklearn.metrics import multilabel_confusion_matrix
 
 
 class ConfusionMatrix:
-
+    """
+    This class create a confusion metric based the predictions and the ground truth labels
+    Can create CM for multi-classes
+    """
     def __init__(self, predicts, ground_truth_labels, classes):
         self.predicts = predicts
         self.ground_truth_labels = ground_truth_labels
@@ -96,7 +99,7 @@ class ConfusionMatrix:
         #         FN = FN/len(self.classes)
         #         FP = FP/len(self.classes)
 
-        return (TP + TN) / (TP + FN + FP + TN)
+        return (self.calculate_TPR_for_all_classes() + self.calculate_TNR_for_all_classes()) / 2
 
     def calculate_accuracy_class(self, class_index):
         indexes = [index for index in range(len(self.ground_truth_labels)) if

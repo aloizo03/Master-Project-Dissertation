@@ -55,10 +55,14 @@ def main(args):
     use_bn = args.use_batch_norm
     use_subpopulation = args.use_sp
     sf = args.sf
+    use_old_class_data = args.old_class_data
 
     classes = emotions_classes
-    old_classes = [classes[i] for i in range(new_classes_itter)]
-    new_classes = [classes[i] for i in range(new_classes_itter, len(emotions_classes))]
+    if new_classes_itter > 0:
+        old_classes = [classes[i] for i in range(new_classes_itter)]
+        new_classes = [classes[i] for i in range(new_classes_itter, len(emotions_classes))]
+    else:
+        pass
 
     dataset_pre_process = pre_processing(sensitive_features=sf)
     data_loader_AffectNet = DataLoader_Affect_Net(classes=old_classes,
@@ -76,7 +80,7 @@ def main(args):
         criterion = nn.CrossEntropyLoss(reduction='none')
         train_loss_computer = LossComputer(
             criterion,
-            is_robust=True,
+            is_robust=is_robust,
             dataset=data_loader_AffectNet.training_dataset,
             alpha=0.1,
             gamma=0.1,
@@ -99,7 +103,8 @@ def main(args):
                                use_batch_norm=use_bn,
                                use_subpopulation=use_subpopulation,
                                sensitive_feature=sf,
-                               loss_function=train_loss_computer)
+                               loss_function=train_loss_computer,
+                               use_old_class_data=use_old_class_data)
     else:
         model = Model_with_LwF(classes=old_classes,
                                total_classes=new_classes_itter,
@@ -110,7 +115,8 @@ def main(args):
                                use_batch_norm=use_bn,
                                use_subpopulation=use_subpopulation,
                                sensitive_feature=sf,
-                               loss_function=criterion)
+                               loss_function=criterion,
+                               use_old_class_data=use_old_class_data)
 
     accuracy_per_train_dataset, \
     loss_all_classes, \
@@ -124,10 +130,8 @@ def main(args):
     plot_training_accuracy(accuracy_per_train_dataset, classes_iter=new_classes_itter, classes=classes)
     plot_model_training_loss(loss_all_classes, classes_iter=new_classes_itter, classes=classes)
     plot_old_classes_accuracy(model)
-    plot_new_classes_testing_accuracy_per_sf(model=model)
-    plot_balance_accuracy_per_sf(CM_list=calculate_confunsion_matrix_per_sf(model=model,
-                                                                            sf=sf,
-                                                                            classes_iter=new_classes_itter))
+    plot_new_classes_testing_accuracy_per_sf(model=model, classes_iter=new_classes_itter, classes=classes)
+
 
 def config_parse(args):
     if args.lr < 0:
@@ -138,6 +142,8 @@ def config_parse(args):
         raise AssertionError('The --batch_size value cannot be a negative number')
     if args.epochs < 0:
         raise AssertionError('The --epochs value cannot be a negative number')
+    if args.sf != 'race4' and args.sf != 'age':
+        raise AssertionError('The --sf value must be race4 or age')
 
 
 def str_to_bool(v):
@@ -148,7 +154,7 @@ def str_to_bool(v):
     elif v.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+        raise argparse.ArgumentTypeError('A boolean value expected on the ')
 
 
 if __name__ == "__main__":
@@ -167,7 +173,10 @@ if __name__ == "__main__":
     parser.add_argument('--use_sp', default=True, type=str_to_bool,
                         help='Identify if we use subpopulation in our model training and testing')
     parser.add_argument('--sf', default='race4', type=str,
-                        help='Identify which class will be the sensitive feature (The 4 races or binary age group)')
+                        help='Identify which class will be the sensitive feature (The 4 races or binary age group)\n'
+                             'The value must be race4 or age')
+    parser.add_argument('--old_class_data', default=False, type=str_to_bool,
+                        help='Identify if add for each new tasks classes data from all the old classes in the training')
 
     args = parser.parse_args()
     config_parse(args)
