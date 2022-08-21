@@ -1,5 +1,5 @@
-'''This loss Class is inspired by the GROUP_DRO loss class
-link: https://github.com/kohpangwei/group_DRO/blob/master/loss.py '''
+'''This loss Class is taken by the GROUP_DRO loss class
+link: https://github.com/kohpangwei/group_DRO/blob/master/loss.py and modified for the needs of this study'''
 
 import os
 import torch

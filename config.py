@@ -4,8 +4,11 @@ colour_channel_input = 3
 # The dataset direction on the computer the path start from the project directory
 dataset_dir = 'Dataset/input/affectnet/'
 # filename of the training labels and sensitive features annotations
-data_filename = 'labels.csv'
-race_labels_filename = 'test_outputs.csv'
+# data_filename = 'labels.csv'
+# race_labels_filename = 'test_outputs.csv'
+# This filenames is for balance dataset
+data_filename = 'balance_dataset_labels.csv'
+race_labels_filename = 'balance_dataset_annotations.csv'
 # filename for the validation labels and sensitive features annotations
 val_data_filename = 'val_labels.csv'
 val_race_labels_filename = 'val_test_outputs.csv'

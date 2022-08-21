@@ -14,6 +14,14 @@ def calculate_confunsion_matrix_per_sf(model,
                                        classes=['anger', 'contempt', 'disgust', 'fear', 'sad', 'surprise', 'happy',
                                                 'neutral'],
                                        classes_iter=2, sf='race4'):
+    """
+    This taking the model create for each class pair a confusion matrix for each sensitive feature group
+    :param model: nn.Module, the model class
+    :param classes: list, a list with all the classes
+    :param classes_iter:
+    :param sf: str, which are the sensitive feature group
+    :return:
+    """
     cm_list = []
     for accuracy_per_new_task, classes_per_tt in zip(model.testing_accuracy_per_classes_update,
                                                      zip(*[iter(classes)] * classes_iter)):
@@ -21,8 +29,7 @@ def calculate_confunsion_matrix_per_sf(model,
         labels_lst = []
         preds_lst = []
         sf_lst = []
-        # emotion_map_id_to_class = {0: 'anger', 1: 'contempt', 2: 'disgust', 3: 'fear', 4: 'sad', 5: 'surprise',
-        #                            6: 'happy', 7: 'neutral'}
+
         if sf == 'race4':
             sensitive_features = list(races4)
         elif sf == 'age':
@@ -47,6 +54,11 @@ def calculate_confunsion_matrix_per_sf(model,
 
 
 def main(args):
+    """
+    The main class of the executing the experiments
+    :param args: args, The variables where are given from the command line for the experiment configurations
+    :return: None
+    """
     new_classes_itter = args.num_classes
     batch_size = args.batch_size
     lr = args.lr
@@ -61,8 +73,6 @@ def main(args):
     if new_classes_itter > 0:
         old_classes = [classes[i] for i in range(new_classes_itter)]
         new_classes = [classes[i] for i in range(new_classes_itter, len(emotions_classes))]
-    else:
-        pass
 
     dataset_pre_process = pre_processing(sensitive_features=sf)
     data_loader_AffectNet = DataLoader_Affect_Net(classes=old_classes,
@@ -118,6 +128,8 @@ def main(args):
                                loss_function=criterion,
                                use_old_class_data=use_old_class_data)
 
+    print(model)
+
     accuracy_per_train_dataset, \
     loss_all_classes, \
     testing_accuracy_per_class, \
@@ -130,14 +142,19 @@ def main(args):
     plot_training_accuracy(accuracy_per_train_dataset, classes_iter=new_classes_itter, classes=classes)
     plot_model_training_loss(loss_all_classes, classes_iter=new_classes_itter, classes=classes)
     plot_old_classes_accuracy(model)
-    plot_new_classes_testing_accuracy_per_sf(model=model, classes_iter=new_classes_itter, classes=classes)
+    plot_new_classes_testing_accuracy_per_sf(model=model, classes_iter=new_classes_itter, classes=classes, sf_group=sf)
 
 
 def config_parse(args):
+    """
+    Check the command line arguments if are give correctly
+    :param args: args, the argument from command line
+    :return: None
+    """
     if args.lr < 0:
         raise AssertionError('The --lr(learning rate) value cannot be a negative number')
-    if args.num_classes < 0:
-        raise AssertionError('The --num_classes value cannot be a negative number')
+    if args.num_classes <= 0:
+        raise AssertionError('The --num_classes value cannot be a negative or zero number')
     if args.batch_size < 0:
         raise AssertionError('The --batch_size value cannot be a negative number')
     if args.epochs < 0:
@@ -147,6 +164,11 @@ def config_parse(args):
 
 
 def str_to_bool(v):
+    """
+    Convert an input string to boolean
+    :param v: str, the input
+    :return: bool, the bool value
+    """
     if isinstance(v, bool):
         return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -158,12 +180,12 @@ def str_to_bool(v):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Learning without forgetting for facial emotion recognition')
+    parser = argparse.ArgumentParser(description='Learning without forgetting for facial emotion recognition with subpopulation shift option')
     parser.add_argument('--num_classes', default=2, help='Number of new classes introduced each time to the model',
                         type=int)
     parser.add_argument('--lr', default=0.0001, type=float, help='The learning rate in the training')
-    parser.add_argument('--batch_size', default=8, type=int, help='The batch size')
-    parser.add_argument('--epochs', default=5, type=int, help='The number of epochs that needed for the training of '
+    parser.add_argument('--batch_size', default=32, type=int, help='The batch size')
+    parser.add_argument('--epochs', default=8, type=int, help='The number of epochs that needed for the training of '
                                                               'each classes group')
     parser.add_argument('--use_batch_norm', default=False, type=str_to_bool,
                         help='Identify if we have batch normalization into '

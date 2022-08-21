@@ -114,7 +114,10 @@ class Dataset(data.Dataset):
             self.image_path_x, self.image_label_y, self.race_labels, self.race_4_labels, self.gender_labels, self.age_group_labels = zip(
                 *zipped_data)
 
-        if use_sf == 'race4':
+        # self.emotions_classes.extend()
+        group_array = []
+        y_array = []
+        if self.use_sf == 'race4':
             # Get the sensitive features labels groups for the group-dro for the four races
             self.n_groups = len(races4)
             for x, y, g in self:
@@ -126,7 +129,7 @@ class Dataset(data.Dataset):
 
             self._y_counts = (torch.arange(len(self.emotions_classes)).unsqueeze(1) == self._y_array).sum(1).float()
 
-        elif use_sf == 'age':
+        elif usself.use_sfe_sf == 'age':
             # Get the sensitive features labels groups for the group-dro for the ages
             self.n_groups = len(binary_age_groups)
             for x, y, g in self:
@@ -357,6 +360,12 @@ class DataLoader_Affect_Net:
             gender = row['gender']
             age_group = row['age']
 
+            if self.sensitive_feature == "age":
+                if age_group in young_age_group:
+                    age_group = 'young'
+                else:
+                    age_group = 'old'
+
             # keep only the classes that was defined on the initialization of the Class
             if label in self.emotions_classes:
                 self.img_paths.append(os.path.join(path_dataset_dir, image_path))
@@ -390,6 +399,12 @@ class DataLoader_Affect_Net:
             race = row['race']
             gender = row['gender']
             age_group = row['age']
+
+            if self.sensitive_feature == "age":
+                if age_group in young_age_group:
+                    age_group = 'young'
+                else:
+                    age_group = 'old'
 
             # keep only the classes that was defined on the initialization of the Class
             if label in self.emotions_classes:
@@ -432,7 +447,7 @@ class DataLoader_Affect_Net:
                                        is_transform=False, classes=self.emotions_classes,
                                        use_sf=self.sensitive_feature)
 
-    def merge_training_data(self, emotion_classes, datasets, percentage=0.2):
+    def merge_training_data(self, emotion_classes, datasets, percentage=0.4):
         """
         Getting a dataset and his emotion classes merge with the dataset with only the percentage of the data
         :param emotion_classes: list, a list from the emotion classes that must merge with the dataset
@@ -473,7 +488,9 @@ class DataLoader_Affect_Net:
             labels_with_sens_features = list(labels_with_sens_features)
             img_paths = list(img_paths)
 
-            self.training_dataset.merge_data(X=img_paths, y=labels_with_sens_features, random_permutation=True)
+            self.training_dataset.merge_data(X=img_paths,
+                                             y=labels_with_sens_features,
+                                             random_permutation=True)
         else:
             # other wise get the data from the dataset list
             img_paths = []
@@ -483,13 +500,14 @@ class DataLoader_Affect_Net:
             gender_labels = []
             group_age_labels = []
             for dataset in datasets:
-                img_paths.extend(random.sample(dataset.img_paths, len(dataset.img_paths) * percentage))
-                labels.extend(random.sample(dataset.labels, len(dataset.labels) * percentage))
-                race_4_labels.extend(random.sample(dataset.race_4_labels, len(dataset.race_4_labels) * percentage))
-                race_labels.extend(random.sample(dataset.race_labels, len(dataset.race_labels) * percentage))
-                gender_labels.extend(random.sample(dataset.gender_labels, len(dataset.gender_labels) * percentage))
+
+                img_paths.extend(random.sample(dataset.img_paths, int(len(dataset.img_paths) * percentage)))
+                labels.extend(random.sample(dataset.labels, int(len(dataset.labels) * percentage)))
+                race_4_labels.extend(random.sample(dataset.race_4_labels, int(len(dataset.race_4_labels) * percentage)))
+                race_labels.extend(random.sample(dataset.race_labels, int(len(dataset.race_labels) * percentage)))
+                gender_labels.extend(random.sample(dataset.gender_labels, int(len(dataset.gender_labels) * percentage)))
                 group_age_labels.extend(
-                    random.sample(dataset.age_group_labels, len(dataset.age_group_labels) * percentage))
+                    random.sample(dataset.group_age_labels, int(len(dataset.group_age_labels) * percentage)))
 
             zipped_data = list(zip(img_paths, labels, race_4_labels, race_labels, gender_labels, group_age_labels))
             random.shuffle(zipped_data)
@@ -499,4 +517,6 @@ class DataLoader_Affect_Net:
             labels_with_sens_features = list(labels_with_sens_features)
             img_paths = list(img_paths)
 
-            self.training_dataset.merge_data(X=img_paths, y=labels_with_sens_features, random_permutation=True)
+            self.training_dataset.merge_data(X=img_paths,
+                                             y=labels_with_sens_features,
+                                             random_permutation=True)
