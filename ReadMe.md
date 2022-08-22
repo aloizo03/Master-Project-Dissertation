@@ -1,8 +1,11 @@
+# Ethical Facial Emotion Recognition using Continuous Learning
 
 ## Requirements
 Install Dependencies
 
 - Pytorch: 1.11 (see more on the [pytorch link](https://pytorch.org/get-started/locally/))
+- OpenCV:  ``` pip install opencv-contrib-python ```
+  - On this work the cuda version which used was the 11.3 and Pytorch 1.10.2
 - OpenCV:  ``` pip install opencv-contrib-python ```
 - tqdm:  ```pip install tqdm```
 - pandas: ```pip install pandas```
